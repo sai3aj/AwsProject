@@ -50,14 +50,17 @@ loginForm.addEventListener('submit', async (e) => {
             })
         });
 
-        if (!response.ok) throw new Error('Login failed');
-        
         const data = await response.json();
+        if (!response.ok) {
+            throw new Error(data.error || 'Login failed');
+        }
+        
         currentUser = data.user;
         updateAuthUI();
         loadUserAppointments();
+        showSuccess('Logged in successfully!');
     } catch (error) {
-        showError('Login failed. Please check your credentials.');
+        showError(error.message || 'Login failed. Please check your credentials.');
     }
 });
 
@@ -65,27 +68,44 @@ signupForm.addEventListener('submit', async (e) => {
     e.preventDefault();
     const formData = new FormData(signupForm);
     
+    // Debug log
+    console.log('Form data:', {
+        email: formData.get('email'),
+        password: formData.get('password')
+    });
+    
     if (formData.get('password') !== formData.get('confirm-password')) {
         showError('Passwords do not match');
         return;
     }
 
+    const data = {
+        email: formData.get('email'),
+        password: formData.get('password')
+    };
+
+    // Debug log
+    console.log('Sending data:', data);
+
     try {
         const response = await fetch(`${API_ENDPOINT}/auth/signup`, {
             method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-                email: formData.get('email'),
-                password: formData.get('password')
-            })
+            headers: { 
+                'Content-Type': 'application/json',
+                'Accept': 'application/json'
+            },
+            body: JSON.stringify(data)
         });
 
-        if (!response.ok) throw new Error('Signup failed');
+        if (!response.ok) {
+            const errorData = await response.json();
+            throw new Error(errorData.error || 'Signup failed');
+        }
         
         showSuccess('Account created! Please check your email for verification.');
         document.getElementById('login-btn').click();
     } catch (error) {
-        showError('Signup failed. Please try again.');
+        showError(error.message || 'Signup failed. Please try again.');
     }
 });
 

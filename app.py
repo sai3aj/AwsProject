@@ -14,8 +14,8 @@ app = Flask(__name__, static_folder='frontend', static_url_path='')
 
 # AWS Configuration
 REGION = 'us-east-1'
-USER_POOL_ID = 'us-east-1_UE7n1qefK'
-CLIENT_ID = '4f5arm0rb74afuvka4splvijrf'
+USER_POOL_ID = None
+CLIENT_ID = None
 BUCKET_NAME = 'autocare-images'
 # SNS_TOPIC_ARN = None
 APPOINTMENTS_TABLE = 'Appointments'
@@ -38,24 +38,29 @@ def init_aws_services():
     
     # Initialize Cognito
     try:
-        USER_POOL_ID = create_user_pool('AutoCareUserPool')
+        pool_name = 'AutoCareUserPool'
+        USER_POOL_ID = create_user_pool(pool_name)
+        if not USER_POOL_ID:
+            print("Failed to get/create user pool")
+            return False
+            
         CLIENT_ID = create_app_client(USER_POOL_ID)
+        if not CLIENT_ID:
+            print("Failed to get/create client ID")
+            return False
+            
+        print(f"Using User Pool ID: {USER_POOL_ID}")
+        print(f"Using Client ID: {CLIENT_ID}")
     except Exception as e:
         print(f"Error initializing Cognito: {str(e)}")
-
-    # Initialize SNS
-    # try:
-    #     sns = boto3.client('sns', region_name=REGION)
-    #     topic = sns.create_topic(Name='appointment-notifications')
-    #     SNS_TOPIC_ARN = topic['TopicArn']
-    # except Exception as e:
-    #     print(f"Error initializing SNS: {str(e)}")
+        return False
 
     # Initialize DynamoDB
     try:
         APPOINTMENTS_TABLE = create_appointments_table()
     except Exception as e:
         print(f"Error initializing DynamoDB: {str(e)}")
+        return False
 
     return True
 
@@ -91,17 +96,32 @@ def index():
 @app.route('/api/auth/signup', methods=['POST'])
 def signup():
     try:
-        data = request.json
-        if not data or 'email' not in data or 'password' not in data:
-            return jsonify({'error': 'Email and password are required'}), 400
-            
-        cognito = boto3.client('cognito-idp', region_name=REGION)
+        print("Received signup request")
+        print("Request headers:", dict(request.headers))
+        print("Request data:", request.get_data())
         
-        # Add password validation
+        if not request.is_json:
+            return jsonify({'error': 'Content-Type must be application/json'}), 400
+            
+        data = request.get_json()
+        print("Parsed JSON data:", data)
+        
+        if not data:
+            return jsonify({'error': 'No data provided'}), 400
+            
+        if not data.get('email'):
+            return jsonify({'error': 'Email is required'}), 400
+            
+        if not data.get('password'):
+            return jsonify({'error': 'Password is required'}), 400
+            
         if len(data['password']) < 8:
             return jsonify({'error': 'Password must be at least 8 characters long'}), 400
             
+        cognito = boto3.client('cognito-idp', region_name=REGION)
+        
         try:
+            # Sign up the user
             response = cognito.sign_up(
                 ClientId=CLIENT_ID,
                 Username=data['email'],
@@ -110,8 +130,15 @@ def signup():
                     {'Name': 'email', 'Value': data['email']}
                 ]
             )
-            print(f"Signup response: {response}")  # Debug logging
-            return jsonify({'message': 'User registered successfully'}), 201
+            
+            # Auto confirm the user (for testing only - remove in production)
+            cognito.admin_confirm_sign_up(
+                UserPoolId=USER_POOL_ID,
+                Username=data['email']
+            )
+            
+            print(f"Signup response: {response}")
+            return jsonify({'message': 'User registered and confirmed successfully'}), 201
             
         except cognito.exceptions.UsernameExistsException:
             return jsonify({'error': 'User already exists'}), 400
@@ -120,34 +147,49 @@ def signup():
         except cognito.exceptions.InvalidParameterException as e:
             return jsonify({'error': str(e)}), 400
         except Exception as e:
-            print(f"Cognito signup error: {str(e)}")  # Debug logging
+            print(f"Cognito signup error: {str(e)}")
             return jsonify({'error': str(e)}), 400
             
     except Exception as e:
-        print(f"General signup error: {str(e)}")  # Debug logging
+        print(f"General signup error: {str(e)}")
         return jsonify({'error': 'Internal server error'}), 500
 
 @app.route('/api/auth/login', methods=['POST'])
 def login():
     try:
         data = request.json
+        if not data or 'email' not in data or 'password' not in data:
+            return jsonify({'error': 'Email and password are required'}), 400
+
         cognito = boto3.client('cognito-idp', region_name=REGION)
         
-        response = cognito.initiate_auth(
-            ClientId=CLIENT_ID,
-            AuthFlow='USER_PASSWORD_AUTH',
-            AuthParameters={
-                'USERNAME': data['email'],
-                'PASSWORD': data['password']
-            }
-        )
-        
-        return jsonify({
-            'token': response['AuthenticationResult']['AccessToken'],
-            'user': {'email': data['email']}
-        })
+        try:
+            response = cognito.initiate_auth(
+                ClientId=CLIENT_ID,
+                AuthFlow='USER_PASSWORD_AUTH',
+                AuthParameters={
+                    'USERNAME': data['email'],
+                    'PASSWORD': data['password']
+                }
+            )
+            
+            return jsonify({
+                'token': response['AuthenticationResult']['AccessToken'],
+                'user': {'email': data['email']}
+            })
+        except cognito.exceptions.UserNotFoundException:
+            return jsonify({'error': 'User not found. Please sign up first.'}), 404
+        except cognito.exceptions.NotAuthorizedException:
+            return jsonify({'error': 'Incorrect username or password'}), 401
+        except cognito.exceptions.UserNotConfirmedException:
+            return jsonify({'error': 'Please verify your email before logging in'}), 403
+        except Exception as e:
+            print(f"Cognito login error: {str(e)}")
+            return jsonify({'error': str(e)}), 401
+            
     except Exception as e:
-        return jsonify({'error': str(e)}), 401
+        print(f"General login error: {str(e)}")
+        return jsonify({'error': 'Internal server error'}), 500
 
 @app.route('/api/auth/logout', methods=['POST'])
 @require_auth
