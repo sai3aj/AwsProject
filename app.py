@@ -16,7 +16,8 @@ app = Flask(__name__, static_folder='frontend', static_url_path='')
 REGION = 'us-east-1'
 USER_POOL_ID = None
 CLIENT_ID = None
-BUCKET_NAME = 'autocare-images'
+BUCKET_NAME = 'autocare-images1'
+PORT = 5555
 # SNS_TOPIC_ARN = None
 APPOINTMENTS_TABLE = 'Appointments'
 
@@ -254,6 +255,45 @@ def get_appointments(user):
     except Exception as e:
         return jsonify({'error': str(e)}), 400
 
+# Add this function for appointment validation
+def validate_appointment(appointment_data):
+    try:
+        # Convert date string to datetime object
+        appointment_date = datetime.strptime(appointment_data['date'], '%Y-%m-%d')
+        current_date = datetime.now()
+
+        # Basic validation rules
+        if appointment_date.date() < current_date.date():
+            return {
+                'isValid': False,
+                'message': 'Appointment date cannot be in the past'
+            }
+
+        # Validate business hours (9 AM to 4 PM)
+        appointment_time = appointment_data['time']
+        valid_times = ['09:00', '10:00', '11:00', '13:00', '14:00', '15:00', '16:00']
+        if appointment_time not in valid_times:
+            return {
+                'isValid': False,
+                'message': 'Invalid appointment time'
+            }
+
+        # Validate service type
+        valid_services = ['oil-change', 'tire-rotation', 'brake-service', 'general-inspection', 'repair']
+        if appointment_data['serviceType'] not in valid_services:
+            return {
+                'isValid': False,
+                'message': 'Invalid service type'
+            }
+
+        return {'isValid': True}
+    except Exception as e:
+        return {
+            'isValid': False,
+            'message': f'Validation error: {str(e)}'
+        }
+
+# Modify the create_appointment route
 @app.route('/api/appointments', methods=['POST'])
 @require_auth
 def create_appointment(user):
@@ -261,17 +301,12 @@ def create_appointment(user):
         data = request.json
         appointment_id = str(uuid.uuid4())
         
-        # Validate appointment using Lambda
-        validation_result = invoke_lambda_function(
-            'validate_appointment',
-            {
-                'appointment': {
-                    'date': data['date'],
-                    'time': data['time'],
-                    'serviceType': data['serviceType']
-                }
-            }
-        )
+        # Replace Lambda validation with local validation
+        validation_result = validate_appointment({
+            'date': data['date'],
+            'time': data['time'],
+            'serviceType': data['serviceType']
+        })
         
         if not validation_result.get('isValid', False):
             return jsonify({'error': validation_result.get('message', 'Invalid appointment')}), 400
@@ -293,25 +328,10 @@ def create_appointment(user):
         }
         
         put_appointment(appointment_id, appointment_data)
-        
-        # Send SNS notification if requested
-        # if data.get('notificationPreference'):
-        #     message = (
-        #         f"New appointment booked!\n"
-        #         f"Service: {data['serviceType']}\n"
-        #         f"Date: {data['date']}\n"
-        #         f"Time: {data['time']}\n"
-        #         f"Vehicle: {data['carYear']} {data['carMake']} {data['carModel']}"
-        #     )
-            
-        #     send_notification(
-        #         SNS_TOPIC_ARN,
-        #         message,
-        #         'New Service Appointment'
-        #     )
-        
         return jsonify(appointment_data), 201
+        
     except Exception as e:
+        print(f"Error creating appointment: {str(e)}")  # Add debug logging
         return jsonify({'error': str(e)}), 400
 
 @app.route('/<path:path>')
@@ -319,4 +339,4 @@ def serve_static_files(path):
     return send_from_directory(app.static_folder, path)
 
 if __name__ == '__main__':
-    app.run(debug=True)
+    app.run(debug=True, port=PORT)

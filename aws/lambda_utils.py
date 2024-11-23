@@ -16,7 +16,7 @@ def create_lambda_function(function_name, role_arn, handler, zip_file_path, runt
             Runtime=runtime,
             Role=role_arn,
             Handler=handler,
-            Code={'validate_appointment.zip': zipped_code},
+            Code={'./validate_appointment.zip': './validate_appointment.py'},
             Description="Validates appointment data",
             Timeout=10,  # seconds
             MemorySize=128,

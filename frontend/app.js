@@ -55,6 +55,8 @@ loginForm.addEventListener('submit', async (e) => {
             throw new Error(data.error || 'Login failed');
         }
         
+        // Store the token in localStorage
+        localStorage.setItem('token', data.token);
         currentUser = data.user;
         updateAuthUI();
         loadUserAppointments();
@@ -130,36 +132,44 @@ appointmentForm.addEventListener('submit', async (e) => {
     };
 
     try {
-        // Handle image upload if present
-        const imageFile = formData.get('car-image');
-        if (imageFile && imageFile.size > 0) {
-            const imageUrl = await uploadImage(imageFile);
-            appointmentData.imageUrl = imageUrl;
+        const token = localStorage.getItem('token');
+        if (!token) {
+            throw new Error('Please login to book an appointment');
         }
 
-        const response = await fetch(`${API_ENDPOINT}/appointments`, {
+        const response = await fetch('/api/appointments', {
             method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
+            headers: {
+                'Content-Type': 'application/json',
+                'Authorization': token
+            },
             body: JSON.stringify(appointmentData)
         });
 
-        if (!response.ok) throw new Error('Failed to book appointment');
+        if (!response.ok) {
+            const errorData = await response.json();
+            throw new Error(errorData.error || 'Failed to book appointment');
+        }
 
         showSuccess('Appointment booked successfully!');
         appointmentForm.reset();
         loadUserAppointments();
     } catch (error) {
-        showError('Failed to book appointment. Please try again.');
+        showError(error.message);
     }
 });
 
 // Image Upload Handler
 async function uploadImage(file) {
     try {
+        const token = localStorage.getItem('token');
         // Get presigned URL
         const response = await fetch(`${API_ENDPOINT}/upload-url`, {
             method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
+            headers: { 
+                'Content-Type': 'application/json',
+                'Authorization': token
+            },
             body: JSON.stringify({ fileName: file.name, fileType: file.type })
         });
 
@@ -179,6 +189,7 @@ async function uploadImage(file) {
         throw new Error('Image upload failed');
     }
 }
+
 
 // Load User Appointments
 async function loadUserAppointments() {
@@ -259,3 +270,4 @@ function formatDate(dateString) {
 
 // Initialize
 updateAuthUI();
+
