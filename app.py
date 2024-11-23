@@ -245,14 +245,22 @@ def get_appointments(user):
         dynamodb = boto3.resource('dynamodb', region_name=REGION)
         table = dynamodb.Table('Appointments')
         
+        # Query using the GSI
         response = table.query(
             IndexName='UserEmailIndex',
             KeyConditionExpression='userEmail = :email',
-            ExpressionAttributeValues={':email': user['Username']}
+            ExpressionAttributeValues={
+                ':email': user['Username']
+            }
         )
         
-        return jsonify(response['Items'])
+        appointments = response.get('Items', [])
+        # Sort appointments by date and time
+        appointments.sort(key=lambda x: (x['date'], x['time']))
+        
+        return jsonify(appointments)
     except Exception as e:
+        print(f"Error fetching appointments: {str(e)}")
         return jsonify({'error': str(e)}), 400
 
 # Add this function for appointment validation

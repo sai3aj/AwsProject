@@ -153,7 +153,7 @@ appointmentForm.addEventListener('submit', async (e) => {
 
         showSuccess('Appointment booked successfully!');
         appointmentForm.reset();
-        loadUserAppointments();
+        await loadUserAppointments();
     } catch (error) {
         showError(error.message);
     }
@@ -196,13 +196,25 @@ async function loadUserAppointments() {
     if (!currentUser) return;
 
     try {
-        const response = await fetch(`${API_ENDPOINT}/appointments`);
+        const token = localStorage.getItem('token');
+        if (!token) {
+            throw new Error('No authentication token found');
+        }
+
+        const response = await fetch(`${API_ENDPOINT}/appointments`, {
+            method: 'GET',
+            headers: {
+                'Authorization': token,
+                'Content-Type': 'application/json'
+            }
+        });
+
         if (!response.ok) throw new Error('Failed to load appointments');
 
         const appointments = await response.json();
         displayAppointments(appointments);
     } catch (error) {
-        showError('Failed to load appointments');
+        showError('Failed to load appointments: ' + error.message);
     }
 }
 
